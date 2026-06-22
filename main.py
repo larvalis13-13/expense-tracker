@@ -1,5 +1,8 @@
 import sqlite3
 import os # для проверки информации в сущ. файлах
+import csv
+from datetime import datetime  # Добавили для создания красивого имени файла
+
 
 def show_last_transactions(num_limit=5):
     """Функция выгружает и печатает последние N транзакций"""
@@ -71,6 +74,79 @@ def delete_by_id(trans_id):
     print(f"\n[Успешно] Транзакция ID {trans_id} удалена.")
     print(f"Из категории '{category}' вычтено {amount:.2f} руб.")
 
+def export_to_csv():
+    """Интерактивное меню экспорта отчетов в Excel (CSV) с полной защитой ввода"""
+    
+    # Бесконечный цикл для подменю: крутится, пока не введут правильно или 0
+    while True:
+        print(f"\n{'-' * 15} НАСТРОЙКА ЭКСПОРТА {'-' * 15}")
+        print("1. Выгрузить за текущий месяц")
+        print("2. Выгрузить за последний год")
+        print("3. Выгрузить за несколько последних месяцев")
+        print("0. Вернуться в главное меню")
+        
+        sub_choice = input("\nВыберите период для отчета: ").strip()
+        
+        # Если нажали 0 — выходим из функции совсем
+        if sub_choice == "0":
+            print("Возврат в главное меню.")
+            return
+            
+        # Если ввели правильный пункт — прерываем цикл while и идем дальше делать отчет
+        if sub_choice in ["1", "2", "3"]:
+            break
+            
+        # Если ввели ерунду — цикл while начнется сначала
+        print("[Ошибка] Неверный пункт меню! Пожалуйста, введите цифру от 0 до 3.")
+
+    # Настраиваем SQL-условие в зависимости от выбора пользователя
+    if sub_choice == "1":
+        period_label = "month"
+        sql_condition = "WHERE date(date) >= date('now', 'localtime', 'start of month')"
+    elif sub_choice == "2":
+        period_label = "year"
+        sql_condition = "WHERE date(date) >= date('now', 'localtime', '-1 year')"
+    elif sub_choice == "3":
+        # Сюда мы тоже добавим защиту, чтобы нельзя было ввести буквы вместо количества месяцев
+        while True:
+            months_input = input("За сколько последних месяцев выгрузить отчет? (Введите число): ").strip()
+            if months_input.isdigit() and int(months_input) > 0:
+                break
+            print("[Ошибка] Введите корректное целое число больше нуля!")
+            
+        period_label = f"{months_input}months"
+        sql_condition = f"WHERE date(date) >= date('now', 'localtime', '-{months_input} months')"
+
+    # 1. Забираем данные из базы по выбранному фильтру даты
+    cursor.execute(f"SELECT id, category, amount, date FROM transactions {sql_condition} ORDER BY id ASC")
+    rows = cursor.fetchall()
+    
+    if not rows:
+        print("\n[Внимание] За выбранный период транзакций не найдено!")
+        return
+        
+    # 2. Формируем красивое имя файла с датой и типом отчета
+    current_date = datetime.now().strftime("%Y_%m_%d")
+    filename = f"report_{period_label}_{current_date}.csv"
+    
+    # 3. ПРОВЕРКА НА ПЕРЕЗАПИСЬ (Логика Python)
+    # os.path.exists проверяет, лежит ли уже такой файл в папке
+    if os.path.exists(filename):
+        print(f"\n[Внимание] Файл '{filename}' уже существует на диске!")
+        overwrite = input("Перезаписать его? (д/н или y/n): ").strip().lower()
+        if overwrite not in ['д', 'да', 'y', 'yes']:
+            print("Экспорт отменен пользователем, старый файл сохранен.")
+            return
+
+    # 4. Запись в файл (если проверки пройдены)
+    with open(filename, mode="w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.writer(file, delimiter=";")
+        writer.writerow(["ID Транзакции", "Категория", "Сумма (руб.)", "Дата и время"])
+        writer.writerows(rows)
+        
+    print(f"\n{'=' * 45}")
+    print(f"[Успешно] Данные экспортированы в файл:\n-> {os.path.abspath(filename)}")
+    print(f"{'=' * 45}")
 
 
 # === 1. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ ===
@@ -121,6 +197,7 @@ while True:
     print("8. Посмотреть текущие расходы за сегодня")
     print("9. Посмотреть последние 5 транзакций")
     print("10. Удалить запись по ID")
+    print("11. Экспорт в *.csv")
     print("0. Выход из программы")
     
     choice = input("\nВыберите номер категории (или 0 для выхода): ")
@@ -144,6 +221,10 @@ while True:
         except ValueError:
             print("Ошибка! ID должен быть числом")
         continue
+    if choice == "11":
+        export_to_csv()
+        continue
+
     
     # проверяем выбор категории
     if not choice.isdigit() or not (1 <= int(choice) <= len(rows)):
